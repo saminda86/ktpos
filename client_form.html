@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="si">
+<head>
+    <meta charset="UTF-8">
+    <title>නව පාරිභෝගිකයෙකු ඇතුළත් කිරීම</title>
+    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    <style>
+        /* Simple styling for demonstration */
+        body { font-family: Arial, sans-serif; padding: 20px; }
+        input { display: block; margin-bottom: 10px; padding: 8px; width: 300px; }
+        label { display: block; font-weight: bold; }
+    </style>
+</head>
+<body>
+
+    <h2>නව පාරිභෝගිකයා ඇතුළත් කරන්න</h2>
+
+    <form id="clientForm">
+        <label for="client_name">නම (Name):</label>
+        <input type="text" id="client_name" name="client_name" required>
+
+        <label for="phone">දුරකථන අංකය (Phone - Unique):</label>
+        <input type="text" id="phone" name="phone" required>
+
+        <label for="email">විද්‍යුත් තැපෑල (Email - Optional):</label>
+        <input type="email" id="email" name="email">
+
+        <button type="submit">පාරිභෝගිකයා ඇතුළත් කරන්න</button>
+    </form>
+
+    <script>
+    $(document).ready(function() {
+        $('#clientForm').on('submit', function(e) {
+            e.preventDefault(); // Stop the form from submitting normally
+
+            // Use AJAX to send data to the PHP processing file
+            $.ajax({
+                url: 'client_insert_process.php', // ***MUST MATCH THE PHP FILE NAME***
+                type: 'POST',
+                data: $(this).serialize(), // Serialize form data for submission
+                dataType: 'json', // Expecting a JSON response from PHP
+                
+                success: function(response) {
+                    // This function runs if the AJAX request was technically successful (even if PHP reported a database error)
+                    
+                    Swal.fire({
+                        title: response.title,      // Title is set by PHP
+                        html: response.message,     // Message is set by PHP (clean Sinhala)
+                        icon: response.icon         // Icon is set by PHP
+                    }).then((result) => {
+                        if (response.status === 'success') {
+                            // Clear form fields on success
+                            $('#clientForm')[0].reset();
+                            // *** Optional: Redirect or refresh your client list here ***
+                            // window.location.reload(); 
+                        }
+                    });
+                },
+                
+                error: function(xhr, status, error) {
+                    // This runs only if there is a severe network/server error, NOT a database error caught by PHP
+                    console.error("AJAX Error:", status, error);
+                    console.error("Server Response:", xhr.responseText);
+                    
+                    Swal.fire({
+                        title: 'තාක්ෂණික දෝෂයක්!',
+                        text: 'සේවාදායකය (Server) සමඟ සම්බන්ධ වීමේ ගැටලුවක්. නැවත පරීක්ෂා කරන්න.',
+                        icon: 'error'
+                    });
+                }
+            });
+        });
+    });
+    </script>
+</body>
+</html>

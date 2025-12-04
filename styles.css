@@ -1,0 +1,214 @@
+/* Custom CSS for KAWDU TECHNOLOGY Inventory & Bill System */
+
+/* 1. Theme Color Definition (වෙනසක් නැත) */
+:root {
+    --sidebar-bg: #144f6a;             /* Sidebar Background: #144f6a */
+    --primary-color: #27b19d;          /* ප්‍රධාන තේමා වර්ණය: #27b19d */
+    --accent-color: #1e8779;           /* Accent Color */
+    --light-grey-bg: #f0f0f0;          
+    --secondary-bg: #f8f9fa;           /* Default Page Background */
+    --modal-bg: #f0f0f0;               
+    --header-bg: #d4edda;              
+    --header-text: #155724;            
+    --sidebar-width: 250px;
+    --top-nav-bg: #95dfe7;             /* Top Nav Background Color */
+    --icon-area-bg: #9dadc1;           /* Card Icon Area Background Color */
+}
+
+/* 2. Global Font Setting (වෙනසක් නැත) */
+body {
+    background-color: var(--secondary-bg); 
+    font-family: 'Noto Sans Sinhala', 'Roboto', sans-serif;
+    font-size: 14px; 
+    margin: 0; 
+    padding: 0;
+}
+
+/* 3. Sidebar Styles (වෙනසක් නැත) */
+.sidebar {
+    position: fixed; 
+    top: 0;
+    left: 0;
+    width: var(--sidebar-width);
+    height: 100vh; 
+    background-color: var(--sidebar-bg); 
+    color: white;
+    padding-top: 20px;
+    box-shadow: 2px 0 5px rgba(0, 0, 0, 0.1);
+    z-index: 1000; 
+}
+.sidebar-header {
+    text-align: center;
+    padding: 10px 0;
+    margin-bottom: 20px;
+    font-size: 2.0rem; 
+    font-weight: bold;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.2);
+}
+.sidebar a {
+    padding: 10px 20px; 
+    text-decoration: none;
+    font-size: 17px; 
+    color: rgba(255, 255, 255, 0.85);
+    display: block; 
+    transition: all 0.3s;
+    margin-bottom: 5px; 
+}
+.sidebar a:hover, .sidebar .active {
+    color: var(--sidebar-bg); 
+    background-color: rgba(255, 255, 255, 0.1); 
+    border-left: 5px solid var(--primary-color); 
+}
+.sidebar a i {
+    margin-right: 10px;
+}
+
+/* 4. Main Content & Top Navbar Styles (වෙනසක් නැත) */
+.main-content {
+    margin-left: var(--sidebar-width); 
+    padding: 20px;
+    width: calc(100% - var(--sidebar-width)); 
+    min-height: 100vh;
+}
+.top-navbar {
+    background-color: var(--top-nav-bg) !important; 
+    padding: 15px 20px;
+    border-bottom: 1px solid #dee2e6;
+    box-shadow: 0 2px 4px rgba(0,0,0,.05);
+    display: flex;
+    justify-content: space-between; 
+    align-items: center;
+}
+.top-navbar .user-info {
+    font-size: 1.1em; 
+    color: #333;
+    font-weight: 600;
+}
+.top-navbar .user-info i {
+    font-size: 1.4em; 
+    margin-right: 8px;
+    color: var(--primary-color);
+}
+.top-navbar .btn-logout {
+    background-color: #dc3545; 
+    color: white;
+    border: none;
+    padding: 8px 15px;
+    border-radius: 5px;
+    text-decoration: none;
+    transition: background-color 0.3s;
+}
+.top-navbar .btn-logout:hover {
+    background-color: #c82333;
+}
+
+/* 5. Dashboard Card Styles (වෙනසක් නැත) */
+.dashboard-card {
+    position: relative; 
+    overflow: hidden; 
+    border-radius: 10px;
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+    transition: transform 0.3s;
+    height: 120px; 
+    display: flex; 
+    padding: 0; 
+    color: white;
+    align-items: stretch;
+}
+/* ... අනෙකුත් Card styles (වෙනසක් නැත) ... */
+.card-text-area {
+    width: 65%;
+    padding: 15px 20px; 
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    line-height: 1.1;
+}
+.card-text-area .h5 {
+    margin-bottom: 0.5rem !important; 
+    font-size: 1em;
+    font-weight: 600;
+}
+.card-text-area .display-4 {
+    font-size: 2.3rem; 
+    line-height: 1.1; 
+    overflow: hidden; 
+    white-space: nowrap; 
+    text-overflow: ellipsis; 
+}
+.card-icon-container {
+    width: 35%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-grow: 1;
+    border-left: 2px solid rgba(255, 255, 255, 0.5); 
+    padding: 10px; 
+    position: relative;
+    overflow: hidden; 
+    background-color: var(--icon-area-bg) !important; 
+}
+.icon-wrapper {
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 90px; 
+    height: 90px;
+    border: 3px solid rgba(255, 255, 255, 0.9); 
+    background-color: transparent !important; 
+    border-radius: 50%; 
+    box-shadow: 0 0 5px rgba(0,0,0,0.2); 
+}
+.card-icon-img {
+    max-width: 70px; 
+    max-height: 70px;
+    object-fit: contain;
+    opacity: 1; 
+    padding: 5px; 
+}
+.icon-value-badge {
+    position: absolute;
+    top: -5px;
+    right: -10px;
+    background-color: #dc3545; 
+    color: #ffffff; 
+    padding: 2px 7px;
+    border-radius: 12px;
+    font-size: 0.8rem;
+    font-weight: bold;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+    min-width: 30px; 
+    text-align: center;
+}
+.card-quotations .card-text-area { background-color: #17a2b8; } 
+.card-invoices .card-text-area { background-color: #28a745; } 
+.card-products .card-text-area { background-color: #ffc107; color: #333;} 
+.card-clients .card-text-area { background-color: #6f42c1; } 
+
+/* 6, 7, 8. Modal, SweetAlert, Button Styles */
+/* 🛑 FIX 2: SweetAlert2 සඳහා Google Fonts යෙදීම */
+.swal2-container {
+    font-family: 'Noto Sans Sinhala', 'Roboto', sans-serif !important;
+}
+.swal2-title {
+    font-weight: 700;
+    font-size: 1.5em; 
+    line-height: 1.3 !important; 
+    margin-top: 0.5em !important;
+    margin-bottom: 0.5em !important;
+}
+.swal2-html-container {
+    text-align: center !important; /* 🛑 FIX: Text Center කිරීම */
+    padding: 0 1em; 
+    line-height: 1.6; 
+}
+.swal2-styled {
+    font-family: 'Noto Sans Sinhala', 'Roboto', sans-serif !important;
+}
+.swal2-confirm {
+    font-size: 1em !important; 
+    font-weight: 600 !important;
+    padding: 0.6em 1.5em !important;
+}
+/* ... අනෙකුත් styles (වෙනසක් නැත) ... */
