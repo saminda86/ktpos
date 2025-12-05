@@ -1,5 +1,5 @@
 <?php
-// File Name: ktpos/products.php (Updated: Supplier in Search Suggestion Center)
+// File Name: ktpos/products.php (FINAL FIX: Search Suggestion Functionality)
 
 if (session_status() === PHP_SESSION_NONE) { session_start(); }
 if (!isset($_SESSION['user_id'])) { header('Location: login.php'); exit(); }
@@ -43,9 +43,9 @@ $sql = "SELECT p.*, c.category_name, s.supplier_name, s.contact_no
 $result = $conn->query($sql);
 if ($result) { while($row = $result->fetch_assoc()) { $product_data[] = $row; } }
 
-// Suggestions Data
+// Suggestions Data (Ensure all needed columns are fetched for client-side search)
 $suggestions = [];
-$sugg_sql = "SELECT p.product_name, p.product_code, p.image_path, p.sell_price, p.stock_quantity, p.buy_price, p.supplier_id, p.description, c.category_name, s.supplier_name 
+$sugg_sql = "SELECT p.product_id, p.product_name, p.product_code, p.image_path, p.sell_price, p.stock_quantity, p.buy_price, p.supplier_id, p.description, c.category_name, s.supplier_name 
              FROM products p 
              LEFT JOIN categories c ON p.category_id = c.category_id
              LEFT JOIN suppliers s ON p.supplier_id = s.supplier_id";
@@ -113,7 +113,75 @@ $suggestions_json = json_encode($suggestions);
     /* Modal */
     .modal-backdrop:nth-of-type(2) { z-index: 1055 !important; }
     #categoryQuickAddModal, #supplierQuickAddModal { z-index: 1060 !important; }
+    
+    /* MAIN MODAL HEADER STYLING */
+    #modalHeader {
+        border-bottom: 1px solid #dee2e6 !important; 
+        background-color: #f8f9fa !important; 
+        border-radius: 0.5rem 0.5rem 0 0 !important; 
+        padding: 1rem 1.5rem; 
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+    }
+    #modalHeader .modal-title {
+        color: #343a40 !important; 
+        font-weight: 700;
+        font-size: 1.25rem;
+    }
+    #modalHeader .btn-close {
+        color: #212529 !important; 
+        filter: invert(0) !important;
+        background: transparent url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='%23000'%3e%3cpath d='M.293.293a1 1 0 011.414 0L8 6.586 14.293.293a1 1 0 111.414 1.414L9.414 8l6.293 6.293a1 1 0 01-1.414 1.414L8 9.414l-6.293 6.293a1 1 0 01-1.414-1.414L6.586 8 .293 1.707a1 1 0 010-1.414z'/%3e%3c/svg%3e") center/1em auto no-repeat;
+    }
+    
+    /* ADD/SERVICE Button CSS */
+    .card-header .btn {
+        font-weight: 600; 
+        border: none !important; 
+        transition: transform 0.1s ease, box-shadow 0.1s ease;
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1); 
+    }
+    .card-header .btn:hover {
+        transform: translateY(-1px); 
+        box-shadow: 0 4px 8px rgba(0, 0, 0, 0.15);
+    }
 
+    /* QUICK ADD BUTTON HIGHLIGHT */
+    .input-group .btn-outline-secondary {
+        border-color: var(--bs-primary) !important; 
+        color: var(--bs-primary) !important; 
+        font-weight: 700;
+        z-index: 5; 
+        transition: all 0.3s ease-in-out;
+        box-shadow: 0 0 5px rgba(13, 110, 253, 0.3); 
+    }
+    .input-group .btn-outline-secondary:hover,
+    .input-group .btn-outline-secondary:focus {
+        background-color: var(--bs-primary) !important; 
+        color: white !important;
+        box-shadow: 0 0 10px rgba(13, 110, 253, 0.8); 
+    }
+
+    /* FLOATING TOOLTIP INJECTION */
+    .input-group.quick-add-group {
+        position: relative; 
+    }
+    .input-group.quick-add-group:hover::after {
+        content: attr(data-tooltip); 
+        position: absolute;
+        bottom: -30px; 
+        left: 0;
+        z-index: 1000;
+        padding: 4px 8px;
+        background: #fff;
+        border: 1px solid var(--bs-primary); 
+        border-radius: 4px;
+        box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+        white-space: nowrap;
+        font-size: 0.75rem;
+        font-weight: 600;
+        color: #343a40;
+    }
+    
     /* Responsive (Laptop) */
     @media (max-width: 1400px) {
         .table-sm td, .table-sm th { font-size: 0.75rem !important; padding: 0.3rem 0.2rem !important; }
@@ -129,9 +197,10 @@ $suggestions_json = json_encode($suggestions);
 <div class="card shadow mb-4">
     <div class="card-header py-2 d-flex justify-content-between align-items-center">
         <h6 class="m-0 font-weight-bold text-primary">Item List (<?php echo $total_records; ?>)</h6>
-        <div class="btn-group btn-group-sm">
-            <button class="btn btn-success" onclick="openModal('product')"><i class="fas fa-box"></i> Add Product</button>
-            <button class="btn btn-info text-white" onclick="openModal('service')"><i class="fas fa-tools"></i> Add Service</button>
+        
+        <div class="btn-group-sm"> 
+            <button class="btn btn-primary me-2" onclick="openModal('product')"><i class="fas fa-box"></i> Add Product</button>
+            <button class="btn btn-primary" onclick="openModal('service')"><i class="fas fa-tools"></i> Add Service</button>
         </div>
     </div>
     
@@ -157,7 +226,8 @@ $suggestions_json = json_encode($suggestions);
                         <th class="col-img">Img</th>
                         <th class="col-code">Code</th>
                         <th width="15%">Name</th>
-                        <th width="10%">Supplier</th> <th width="12%">Description</th>
+                        <th width="10%">Supplier</th> 
+                        <th width="12%">Description</th>
                         <th width="10%" class="col-cat">Category</th>
                         <th width="8%" class="text-end">Cost</th>
                         <th width="8%" class="text-end">Price</th>
@@ -230,9 +300,9 @@ $suggestions_json = json_encode($suggestions);
 <div class="modal fade" id="mainModal" tabindex="-1" data-bs-backdrop="static">
     <div class="modal-dialog modal-lg modal-dialog-centered">
         <div class="modal-content">
-            <div class="modal-header text-white" id="modalHeader">
+            <div class="modal-header" id="modalHeader">
                 <h5 class="modal-title" id="modalTitle"></h5>
-                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
             </div>
             <div class="modal-body">
                 <form id="productForm" enctype="multipart/form-data">
@@ -252,7 +322,7 @@ $suggestions_json = json_encode($suggestions);
                         
                         <div class="col-md-6">
                             <label class="form-label small fw-bold">Category <span class="text-danger">*</span></label>
-                            <div class="input-group">
+                            <div class="input-group quick-add-group" data-tooltip="නව කැටගරියක් එක් කිරීමට [+] බොත්තම භාවිතා කරන්න.">
                                 <select class="form-select select2-box" name="category_id" id="category_id" required>
                                     <option value="">-- Select --</option>
                                     <?php foreach($categories as $cat) echo "<option value='{$cat['category_id']}'>{$cat['category_name']}</option>"; ?>
@@ -263,7 +333,7 @@ $suggestions_json = json_encode($suggestions);
 
                         <div class="col-md-6" id="div_supplier">
                             <label class="form-label small fw-bold">Supplier</label>
-                            <div class="input-group">
+                            <div class="input-group quick-add-group" data-tooltip="නව සැපයුම්කරුවෙක් එක් කිරීමට [+] බොත්තම භාවිතා කරන්න.">
                                 <select class="form-select select2-box" name="supplier_id" id="supplier_id">
                                     <option value="">-- Select --</option>
                                     <?php foreach($suppliers as $sup) echo "<option value='{$sup['supplier_id']}'>{$sup['supplier_name']}</option>"; ?>
@@ -373,17 +443,13 @@ $(document).ready(function() {
         $('#item_type').val(mode);
         calculateProfit();
 
+        // Remove colored background for clean look
+        $('#modalHeader').removeClass('bg-success bg-info');
+        
         if(mode === 'product') {
-            $('#modalTitle').html('<i class="fas fa-box"></i> Add New Product');
-            $('#modalHeader').removeClass('bg-info').addClass('bg-success');
-            $('#div_supplier, #div_stock').show(); 
-            $('#saveBtn').text('Save Product').removeClass('btn-info').addClass('btn-success');
+            $('#modalTitle').html('<i class="fas fa-box"></i> New Product Details');
         } else {
-            $('#modalTitle').html('<i class="fas fa-tools"></i> Add New Service');
-            $('#modalHeader').removeClass('bg-success').addClass('bg-info');
-            $('#div_supplier, #div_stock').hide(); 
-            $('#stock_quantity').val('0'); $('#supplier_id').val('');
-            $('#saveBtn').text('Save Service').removeClass('btn-success').addClass('btn-info text-white');
+            $('#modalTitle').html('<i class="fas fa-tools"></i> New Service Details');
         }
         $('#div_buy_price, #div_profit_display').show(); 
         mainModal.show();
@@ -398,7 +464,10 @@ $(document).ready(function() {
         
         openModal(mode); 
         $('#form_action').val('update');
-        $('#modalTitle').html(`<i class="fas fa-edit"></i> Edit ${mode === 'product' ? 'Product' : 'Service'}`);
+        
+        // Remove colored background for clean look
+        $('#modalHeader').removeClass('bg-success bg-info');
+        $('#modalTitle').html(`<i class="fas fa-edit"></i> Edit ${mode === 'product' ? 'Product Details' : 'Service Details'}`);
         $('#saveBtn').text('Update Item');
         
         $('#product_id_modal').val(item.product_id);
@@ -468,9 +537,21 @@ $(document).ready(function() {
                 let img = i.image_path || 'uploads/products/default.png';
                 let price = parseFloat(i.sell_price).toFixed(2);
                 let stockHtml = (i.buy_price == 0 && i.stock_quantity == 0 && !i.supplier_id) ? `<span class="badge bg-info">Svc</span>` : `<span class="badge bg-${i.stock_quantity<5?'danger':'success'}">${i.stock_quantity}</span>`;
+                
+                // SUPPLIER DATA IN SUGGESTION CENTERED (Simplified)
+                let supplierHtml = i.supplier_name ? `<span class="badge bg-light text-secondary border">${i.supplier_name}</span>` : '';
+
                 html += `<div class="suggestion-item" onclick="window.location.href='products.php?search=${encodeURIComponent(i.product_name)}'">
                     <div class="suggestion-img-box"><img src="${img}"></div>
-                    <div class="flex-grow-1"><div class="fw-bold text-dark">${i.product_name} <span class="badge bg-light text-dark border">${i.product_code}</span></div></div>
+                    <div class="flex-grow-1">
+                        <div class="fw-bold text-dark">${i.product_name} <span class="badge bg-light text-dark border">${i.product_code}</span></div>
+                        
+                        <div class="d-flex align-items-center mt-1">
+                            <small class="text-primary fw-bold">${supplierHtml}</small>
+                        </div>
+                        
+                        <small class="text-muted fst-italic d-block" style="font-size:0.8em;">${i.category_name || '-'} | ${desc}</small> 
+                    </div>
                     <div class="text-end"><div class="fw-bold text-success">Rs. ${price}</div>${stockHtml}</div>
                 </div>`;
             });
