@@ -1,14 +1,22 @@
 <style>
     .modal-backdrop.show { opacity: 0.85 !important; background-color: #000 !important; }
     .modal-content { box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5) !important; border: none; }
+    /* Clean Modal Header Styling */
+    .modal-header.bg-light { 
+        background-color: #f8f9fa !important; /* Light Gray Background */
+        border-bottom: 1px solid #e9ecef !important;
+    }
 </style>
 
 <div class="modal fade" id="categoryQuickAddModal" tabindex="-1" data-bs-backdrop="static">
     <div class="modal-dialog modal-dialog-centered">
         <div class="modal-content">
-            <div class="modal-header bg-primary text-white">
-                <h5 class="modal-title"><i class="fas fa-tags"></i> Manage Categories</h5>
-                <button type="button" class="btn-close btn-close-white" onclick="closeQuickAddModal('category')"></button>
+            <!-- UPDATED: Removed bg-primary text-white, added bg-light for clean look -->
+            <div class="modal-header bg-light">
+                <!-- UPDATED: Added text-secondary for gray font color -->
+                <h5 class="modal-title text-secondary"><i class="fas fa-tags"></i> Manage Categories</h5>
+                <!-- UPDATED: Removed btn-close-white as background is light -->
+                <button type="button" class="btn-close" onclick="closeQuickAddModal('category')"></button>
             </div>
             <div class="modal-body">
                 <form id="categoryQuickAddForm" class="mb-3">
@@ -30,9 +38,12 @@
 <div class="modal fade" id="supplierQuickAddModal" tabindex="-1" data-bs-backdrop="static">
     <div class="modal-dialog modal-dialog-centered">
         <div class="modal-content">
-            <div class="modal-header bg-dark text-white">
-                <h5 class="modal-title"><i class="fas fa-truck"></i> Manage Suppliers</h5>
-                <button type="button" class="btn-close btn-close-white" onclick="closeQuickAddModal('supplier')"></button>
+            <!-- UPDATED: Removed bg-dark text-white, added bg-light for clean look -->
+            <div class="modal-header bg-light">
+                <!-- UPDATED: Added text-secondary for gray font color -->
+                <h5 class="modal-title text-secondary"><i class="fas fa-truck"></i> Manage Suppliers</h5>
+                <!-- UPDATED: Removed btn-close-white as background is light -->
+                <button type="button" class="btn-close" onclick="closeQuickAddModal('supplier')"></button>
             </div>
             <div class="modal-body">
                 <form id="supplierQuickAddForm" class="mb-3">

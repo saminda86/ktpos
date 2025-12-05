@@ -550,7 +550,8 @@ $(document).ready(function() {
                             <small class="text-primary fw-bold">${supplierHtml}</small>
                         </div>
                         
-                        <small class="text-muted fst-italic d-block" style="font-size:0.8em;">${i.category_name || '-'} | ${desc}</small> 
+                        <!-- FIX: Changed undefined variable 'desc' to 'i.description' -->
+                        <small class="text-muted fst-italic d-block" style="font-size:0.8em;">${i.category_name || '-'} | ${i.description || '-'}</small> 
                     </div>
                     <div class="text-end"><div class="fw-bold text-success">Rs. ${price}</div>${stockHtml}</div>
                 </div>`;
