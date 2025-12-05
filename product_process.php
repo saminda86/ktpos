@@ -1,261 +1,140 @@
 <?php
-// File Name: invoice_process.php
+// File Name: ktpos/product_process.php (Service Cost Added)
 
 header('Content-Type: application/json; charset=utf-8');
-
-if (session_status() === PHP_SESSION_NONE) {
-    session_start();
-}
+session_start();
 
 if (!isset($_SESSION['user_id'])) {
-     echo json_encode(['status' => 'error', 'message' => 'You must be logged in to perform this action.']);
-     exit;
+    echo json_encode(['status' => 'error', 'title' => 'අවසර නැත!', 'message' => 'කරුණාකර පළමුව ලොග් වන්න.', 'icon' => 'error']);
+    exit;
 }
-$user_id = $_SESSION['user_id'];
 
-// --- Database Connection (PDO) ---
+require_once 'db_connect.php'; 
+
 try {
-    $host = 'localhost'; 
-    $db   = 'kawdu_bill_system'; // 🛑 User's DB
-    $user = 'root';              
-    $pass = 'admin';  
-    $charset = 'utf8mb4';
-    $dsn = "mysql:host=$host;dbname=$db;charset=$charset";
-    $options = [ PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION, PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC ];
-    $pdo = new PDO($dsn, $user, $pass, $options);
-} catch (\PDOException $e) {
-     echo json_encode(['status' => 'error', 'message' => 'Database connection failed.']);
-     exit;
+    $dsn = "mysql:host=$servername;dbname=$dbname;charset=utf8mb4";
+    $pdo = new PDO($dsn, $username, $password);
+    $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+} catch (PDOException $e) {
+    echo json_encode(['status' => 'error', 'title' => 'සම්බන්ධතා දෝෂය!', 'message' => 'Database සම්බන්ධතාවය අසාර්ථකයි.', 'icon' => 'error']);
+    exit;
 }
 
-$action = $_POST['action'] ?? $_GET['action'] ?? '';
+$action = $_POST['action'] ?? '';
 
 // -----------------------------------------------------------
-// 1. ACTION: 'create' (Create New Invoice)
+// INSERT & UPDATE
 // -----------------------------------------------------------
-if ($action === 'create') {
-    // 1. Sanitize Main Invoice Data (From sample create_invoice.php)
-    $client_id = (int)$_POST['client_id'];
-    $invoice_date = $_POST['invoice_date'];
-    $grand_total = (float)$_POST['grand_total']; 
-    $sub_total = (float)$_POST['sub_total'];
-    $tax_amount = 0.00; // 'Sample' එකේ මෙන් Tax 0.00
-    $payment_status = $_POST['payment_status'];
+if ($action === 'insert' || $action === 'update') {
     
-    // Item details (From sample create_invoice.php)
-    $product_ids = $_POST['product_id'] ?? [];
-    $serial_numbers = $_POST['serial_number'] ?? [];
-    $quantities = $_POST['quantity'] ?? [];
-    $unit_prices = $_POST['unit_price'] ?? [];
-    $buy_prices = $_POST['buy_price'] ?? [];
+    $product_id   = !empty($_POST['product_id']) ? intval($_POST['product_id']) : null;
+    $product_name = trim($_POST['product_name'] ?? '');
+    $category_id  = !empty($_POST['category_id']) ? intval($_POST['category_id']) : null;
+    $description  = trim($_POST['description'] ?? '');
+    $sell_price   = floatval($_POST['sell_price'] ?? 0);
     
-    // Invoice Number Generation (From sample create_invoice.php)
-    $stmt_max = $pdo->query("SELECT MAX(id) AS max_id FROM invoices");
-    $next_id = ($stmt_max->fetch()['max_id'] ?? 0) + 1;
-    $invoice_number = "INV-" . str_pad($next_id, 6, '0', STR_PAD_LEFT);
-
-    try {
-        $pdo->beginTransaction();
-        
-        // 2. Insert into invoices table
-        $sql_invoice = "INSERT INTO invoices (invoice_number, client_id, user_id, invoice_date, sub_total, tax_amount, grand_total, payment_status)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?)"; 
-        $stmt_invoice = $pdo->prepare($sql_invoice);
-        $stmt_invoice->execute([$invoice_number, $client_id, $user_id, $invoice_date, $sub_total, $tax_amount, $grand_total, $payment_status]);
-        $invoice_id = $pdo->lastInsertId();
-        
-        // 3. Insert into invoice_items table (From sample create_invoice.php)
-        $sql_items = "INSERT INTO invoice_items (invoice_id, product_id, serial_number, quantity, unit_price, buy_price) VALUES (?, ?, ?, ?, ?, ?)";
-        $stmt_items = $pdo->prepare($sql_items);
-
-        foreach ($product_ids as $key => $product_id) {
-            $serial_num = $serial_numbers[$key] ?? NULL;
-            $qty = (int)$quantities[$key];
-            $price = (float)$unit_prices[$key];
-            $buy_price = (float)$buy_prices[$key];
-
-            if ($qty > 0) {
-                $stmt_items->execute([$invoice_id, $product_id, $serial_num, $qty, $price, $buy_price]);
-                
-                // 4. Update Stock (From user's product_process.php logic)
-                $pdo->prepare("UPDATE products SET stock_quantity = stock_quantity - ? WHERE product_id = ? AND stock_quantity >= ?")
-                    ->execute([$qty, $product_id, $qty]);
-            }
-        }
-
-        $pdo->commit();
-        echo json_encode(['status' => 'success', 'message' => "Invoice $invoice_number successfully created!"]);
-
-    } catch (Exception $e) {
-        $pdo->rollBack();
-        echo json_encode(['status' => 'error', 'message' => "Transaction failed: " . $e->getMessage()]);
+    $item_type      = $_POST['item_type'] ?? 'product'; 
+    $product_code   = trim($_POST['product_code'] ?? '');
+    
+    // 🛑 UPDATED LOGIC: Allow Buy Price for Services 🛑
+    if ($item_type === 'service') {
+        $buy_price      = floatval($_POST['buy_price'] ?? 0); // Service Cost Enabled
+        $stock_quantity = 0;    // Stock is still 0 for services
+        $supplier_id    = null; // Supplier not needed for services
+    } else {
+        $buy_price      = floatval($_POST['buy_price'] ?? 0);
+        $stock_quantity = intval($_POST['stock_quantity'] ?? 0);
+        $supplier_id    = !empty($_POST['supplier_id']) ? intval($_POST['supplier_id']) : null;
     }
-}
 
-// -----------------------------------------------------------
-// 2. ACTION: 'fetch_for_edit' (Get data for Edit Modal)
-// -----------------------------------------------------------
-elseif ($action === 'fetch_for_edit') {
-    $invoice_id = (int)$_POST['invoice_id'];
-    if (empty($invoice_id)) {
-        echo json_encode(['status' => 'error', 'message' => 'Invalid Invoice ID.']);
+    if (empty($product_name) || empty($category_id)) {
+        echo json_encode(['status' => 'error', 'title' => 'දත්ත දෝෂයක්!', 'message' => 'Item Name සහ Category අත්‍යවශ්‍ය වේ.', 'icon' => 'warning']);
         exit;
     }
 
-    try {
-        // 'Sample' (edit_invoice.php) එකේ මෙන් දත්ත ලබා ගැනීම
-        $stmt_inv = $pdo->prepare("SELECT * FROM invoices WHERE id = ?");
-        $stmt_inv->execute([$invoice_id]);
-        $invoice_data = $stmt_inv->fetch();
-
-        $stmt_items = $pdo->prepare("SELECT * FROM invoice_items WHERE invoice_id = ?");
-        $stmt_items->execute([$invoice_id]);
-        $invoice_items_data = $stmt_items->fetchAll();
-
-        if (!$invoice_data) {
-            echo json_encode(['status' => 'error', 'message' => 'Invoice not found.']);
-        } else {
-            echo json_encode(['status' => 'success', 'invoice' => $invoice_data, 'items' => $invoice_items_data]);
-        }
-    } catch (Exception $e) {
-        echo json_encode(['status' => 'error', 'message' => $e->getMessage()]);
+    // Duplicate Check
+    $checkSql = "SELECT COUNT(*) FROM products WHERE product_name = :name AND (supplier_id <=> :sup)";
+    if ($action === 'update') {
+        $checkSql .= " AND product_id != :id";
     }
-}
-
-// -----------------------------------------------------------
-// 3. ACTION: 'update' (Update Existing Invoice)
-// -----------------------------------------------------------
-elseif ($action === 'update') {
-    $invoice_id = (int)$_POST['invoice_id'];
-    if (empty($invoice_id)) {
-        echo json_encode(['status' => 'error', 'message' => 'Invalid Invoice ID.']);
+    $checkStmt = $pdo->prepare($checkSql);
+    $params = [':name' => $product_name, ':sup' => $supplier_id];
+    if ($action === 'update') $params[':id'] = $product_id;
+    
+    $checkStmt->execute($params);
+    if ($checkStmt->fetchColumn() > 0) {
+        $msg = ($item_type === 'service') 
+            ? 'මෙම නම සහිත Service එකක් දැනටමත් ඇත.' 
+            : 'මෙම නම සහ Supplier යටතේ Product එකක් දැනටමත් ඇත.';
+        echo json_encode(['status' => 'error', 'title' => 'Duplicate!', 'message' => $msg, 'icon' => 'warning']);
         exit;
     }
-    
-    // 1. Sanitize Main Invoice Data (From sample edit_invoice.php)
-    $client_id = (int)$_POST['client_id'];
-    $invoice_date = $_POST['invoice_date'];
-    $grand_total = (float)$_POST['grand_total']; 
-    $sub_total = (float)$_POST['sub_total'];
-    $tax_amount = 0.00; // Tax is 0
-    $payment_status = $_POST['payment_status'];
-    
-    // Item details (From sample edit_invoice.php)
-    $item_ids = $_POST['item_id'] ?? []; // Existing item IDs
-    $product_ids = $_POST['product_id'] ?? [];
-    $serial_numbers = $_POST['serial_number'] ?? []; 
-    $quantities = $_POST['quantity'] ?? [];
-    $unit_prices = $_POST['unit_price'] ?? [];
-    $buy_prices = $_POST['buy_price'] ?? [];
+
+    // Auto Code
+    if (empty($product_code)) {
+        $prefix = ($item_type === 'service') ? 'KWS-' : 'KWP-';
+        $product_code = $prefix . str_pad(mt_rand(1, 999999), 6, '0', STR_PAD_LEFT);
+    }
+
+    // Image Upload
+    $image_path = null;
+    if (isset($_FILES['product_image']) && $_FILES['product_image']['error'] === UPLOAD_ERR_OK) {
+        $uploadDir = 'uploads/products/';
+        if (!is_dir($uploadDir)) mkdir($uploadDir, 0777, true);
+        $fileName = 'prod_' . uniqid() . '.' . pathinfo($_FILES['product_image']['name'], PATHINFO_EXTENSION);
+        if (move_uploaded_file($_FILES['product_image']['tmp_name'], $uploadDir . $fileName)) {
+            $image_path = $uploadDir . $fileName;
+        }
+    }
 
     try {
-        $pdo->beginTransaction();
-        
-        // --- A. Update invoices table ---
-        $sql_invoice = "UPDATE invoices SET client_id=?, user_id=?, invoice_date=?, sub_total=?, tax_amount=?, grand_total=?, payment_status=? WHERE id=?";
-        $stmt_invoice = $pdo->prepare($sql_invoice);
-        $stmt_invoice->execute([$client_id, $user_id, $invoice_date, $sub_total, $tax_amount, $grand_total, $payment_status, $invoice_id]);
-
-        // --- B. Manage invoice_items table (From sample edit_invoice.php) ---
-        
-        // 1. Get original items to calculate stock adjustment
-        $stmt_orig_items = $pdo->prepare("SELECT product_id, quantity FROM invoice_items WHERE invoice_id = ?");
-        $stmt_orig_items->execute([$invoice_id]);
-        $original_items = $stmt_orig_items->fetchAll(PDO::FETCH_KEY_PAIR); // [product_id => quantity]
-
-        // 2. Delete items that were removed from the form
-        $form_item_ids_safe = implode(',', array_map('intval', array_filter($item_ids, fn($id) => $id > 0)));
-        if (empty($form_item_ids_safe)) {
-            $pdo->query("DELETE FROM invoice_items WHERE invoice_id = $invoice_id");
+        if ($action === 'insert') {
+            $sql = "INSERT INTO products (product_code, product_name, category_id, supplier_id, buy_price, sell_price, stock_quantity, description, image_path) 
+                    VALUES (:code, :name, :cat, :sup, :buy, :sell, :stock, :desc, :img)";
+            $stmt = $pdo->prepare($sql);
+            $stmt->execute([
+                ':code' => $product_code, ':name' => $product_name, ':cat' => $category_id, ':sup' => $supplier_id,
+                ':buy' => $buy_price, ':sell' => $sell_price, ':stock' => $stock_quantity, ':desc' => $description, ':img' => $image_path
+            ]);
+            echo json_encode(['status' => 'success', 'title' => 'සාර්ථකයි!', 'message' => 'ඇතුළත් කිරීම සාර්ථකයි!', 'icon' => 'success']);
         } else {
-            $pdo->query("DELETE FROM invoice_items WHERE invoice_id = $invoice_id AND id NOT IN ($form_item_ids_safe)");
+            $sql = "UPDATE products SET product_name=:name, product_code=:code, category_id=:cat, supplier_id=:sup, 
+                    buy_price=:buy, sell_price=:sell, stock_quantity=:stock, description=:desc";
+            if ($image_path) $sql .= ", image_path=:img";
+            $sql .= " WHERE product_id=:id";
+            
+            $upParams = [
+                ':name' => $product_name, ':code' => $product_code, ':cat' => $category_id, ':sup' => $supplier_id,
+                ':buy' => $buy_price, ':sell' => $sell_price, ':stock' => $stock_quantity, ':desc' => $description, ':id' => $product_id
+            ];
+            if ($image_path) $upParams[':img'] = $image_path;
+
+            $stmt = $pdo->prepare($sql);
+            $stmt->execute($upParams);
+            echo json_encode(['status' => 'success', 'title' => 'සාර්ථකයි!', 'message' => 'යාවත්කාලීන කිරීම සාර්ථකයි!', 'icon' => 'success']);
         }
-        
-        // 3. Prepare Stock Update statements
-        $stmt_stock_add = $pdo->prepare("UPDATE products SET stock_quantity = stock_quantity + ? WHERE product_id = ?");
-        $stmt_stock_sub = $pdo->prepare("UPDATE products SET stock_quantity = stock_quantity - ? WHERE product_id = ? AND stock_quantity >= ?");
-        
-        // 4. Reset original stock quantities
-        foreach ($original_items as $prod_id => $qty) {
-            $stmt_stock_add->execute([$qty, $prod_id]);
+    } catch (PDOException $e) {
+        if ($e->getCode() === '23000') {
+            echo json_encode(['status' => 'error', 'title' => 'Duplicate Code!', 'message' => 'Product Code එක දැනටමත් පවතී.', 'icon' => 'warning']);
+        } else {
+            echo json_encode(['status' => 'error', 'title' => 'Error', 'message' => $e->getMessage(), 'icon' => 'error']);
         }
-
-        // 5. Insert/Update items from the form
-        $sql_update_item = "UPDATE invoice_items SET product_id=?, serial_number=?, quantity=?, unit_price=?, buy_price=? WHERE id=?";
-        $sql_insert_item = "INSERT INTO invoice_items (invoice_id, product_id, serial_number, quantity, unit_price, buy_price) VALUES (?, ?, ?, ?, ?, ?)";
-        $stmt_update = $pdo->prepare($sql_update_item);
-        $stmt_insert = $pdo->prepare($sql_insert_item);
-
-        foreach ($product_ids as $key => $product_id) {
-            $item_id = (int)$item_ids[$key];
-            $serial_num = $serial_numbers[$key] ?? NULL;
-            $qty = (int)$quantities[$key];
-            $price = (float)$unit_prices[$key];
-            $buy_price = (float)$buy_prices[$key];
-
-            if ($qty > 0) {
-                if ($item_id > 0) { // Update existing item
-                    $stmt_update->execute([$product_id, $serial_num, $qty, $price, $buy_price, $item_id]);
-                } else { // Insert new item
-                    $stmt_insert->execute([$invoice_id, $product_id, $serial_num, $qty, $price, $buy_price]);
-                }
-                
-                // 6. Deduct new stock quantity
-                $stmt_stock_sub->execute([$qty, $product_id, $qty]);
-                if ($stmt_stock_sub->rowCount() == 0) {
-                     throw new Exception("Stock is insufficient for product ID $product_id.");
-                }
-            }
-        }
-
-        $pdo->commit();
-        echo json_encode(['status' => 'success', 'message' => 'Invoice successfully updated!']);
-
-    } catch (Exception $e) {
-        $pdo->rollBack();
-        echo json_encode(['status' => 'error', 'message' => "Update failed: " . $e->getMessage()]);
     }
 }
 
 // -----------------------------------------------------------
-// 4. ACTION: 'delete' (Delete Invoice)
+// DELETE Logic
 // -----------------------------------------------------------
 elseif ($action === 'delete') {
     if ($_SESSION['user_type'] !== 'Admin') {
-         echo json_encode(['status' => 'error', 'message' => 'Only Admins can delete invoices.']);
-         exit;
-    }
-    
-    $invoice_id = (int)$_POST['invoice_id'];
-    if (empty($invoice_id)) {
-        echo json_encode(['status' => 'error', 'message' => 'Invalid Invoice ID.']);
+        echo json_encode(['status' => 'error', 'title' => 'අවසර නැත', 'message' => 'Admin පමණි.', 'icon' => 'error']);
         exit;
     }
-
     try {
-        $pdo->beginTransaction();
-
-        // 1. Get items to return stock
-        $stmt_orig_items = $pdo->prepare("SELECT product_id, quantity FROM invoice_items WHERE invoice_id = ?");
-        $stmt_orig_items->execute([$invoice_id]);
-        $original_items = $stmt_orig_items->fetchAll(PDO::FETCH_KEY_PAIR);
-        
-        // 2. Return stock
-        $stmt_stock_add = $pdo->prepare("UPDATE products SET stock_quantity = stock_quantity + ? WHERE product_id = ?");
-        foreach ($original_items as $prod_id => $qty) {
-            $stmt_stock_add->execute([$qty, $prod_id]);
-        }
-        
-        // 3. Delete invoice (CASCADE delete will handle invoice_items)
-        $stmt_delete = $pdo->prepare("DELETE FROM invoices WHERE id = ?");
-        $stmt_delete->execute([$invoice_id]);
-
-        $pdo->commit();
-        echo json_encode(['status' => 'success', 'message' => 'Invoice and all its items deleted. Stock has been returned.']);
-
-    } catch (Exception $e) {
-        $pdo->rollBack();
-        echo json_encode(['status' => 'error', 'message' => 'Delete failed: ' . $e->getMessage()]);
+        $pdo->prepare("DELETE FROM products WHERE product_id = ?")->execute([$_POST['product_id']]);
+        echo json_encode(['status' => 'success', 'title' => 'ඉවත් කළා!', 'message' => 'සාර්ථකව ඉවත් කරන ලදි.', 'icon' => 'success']);
+    } catch (PDOException $e) {
+        echo json_encode(['status' => 'error', 'title' => 'අසාර්ථකයි', 'message' => 'භාවිතයේ පවතින බැවින් මැකිය නොහැක.', 'icon' => 'error']);
     }
 }
 ?>
