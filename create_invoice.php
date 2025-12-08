@@ -1,506 +1,346 @@
-<?php
-// File Name: create_invoice.php
-// Description: Create New Invoice (With "Convert from Quotation" Logic)
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Create New Invoice | Kawdu Technology</title>
 
-$page_title = 'Create New Invoice';
-require_once 'header.php';
-require_once 'db_connect.php';
-require_once 'invoice_helpers.php'; 
-
-$conn = new mysqli($servername, $username, $password, $dbname);
-if ($conn->connect_error) {
-    die("Database connection failed: " . $conn->connect_error);
-}
-
-// -----------------------------------------------------------
-// 1. "CONVERT TO INVOICE" LOGIC (Pre-fill Data)
-// -----------------------------------------------------------
-$prefill_data = [];
-$prefill_items = [];
-$is_converting = false;
-
-if (isset($_GET['from_quote']) && is_numeric($_GET['from_quote'])) {
-    $q_id = intval($_GET['from_quote']);
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     
-    // Fetch Main Quotation Details
-    $q_res = $conn->query("SELECT * FROM quotations WHERE quotation_id = $q_id");
+    <link href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css" rel="stylesheet">
     
-    if ($q_res && $q_res->num_rows > 0) {
-        $quote = $q_res->fetch_assoc();
-        $is_converting = true;
-        
-        $prefill_data['client_id'] = $quote['client_id'];
-        $prefill_data['sub_total'] = $quote['sub_total'];
-        $prefill_data['tax_amount'] = $quote['tax_amount'];
-        $prefill_data['grand_total'] = $quote['grand_total'];
-        
-        // Fetch Items & Join with Products to get Buy Price & Current Stock
-        // Note: Quotations don't usually store buy_price, so we fetch current buy_price from products table
-        $sql_q_items = "SELECT qi.*, p.buy_price, p.stock_quantity, p.product_code 
-                        FROM quotation_items qi 
-                        LEFT JOIN products p ON qi.product_id = p.product_id 
-                        WHERE qi.quotation_id = $q_id";
-        
-        $res_q_items = $conn->query($sql_q_items);
-        while($row = $res_q_items->fetch_assoc()) {
-            // If product was deleted, buy_price might be null, handle gracefully
-            if(is_null($row['buy_price'])) $row['buy_price'] = 0;
-            if(is_null($row['stock_quantity'])) $row['stock_quantity'] = 0;
-            $prefill_items[] = $row;
-        }
-    }
-}
+    <link rel="stylesheet" href="https://code.jquery.com/ui/1.13.2/themes/base/jquery-ui.css">
 
-// -----------------------------------------------------------
-// 2. HANDLE FORM SUBMISSION (POST)
-// -----------------------------------------------------------
-if ($_SERVER['REQUEST_METHOD'] == 'POST') {
-    $conn->begin_transaction();
-    
-    try {
-        // --- Get Form Data ---
-        $client_id = intval($_POST['client_id']);
-        $user_id = intval($_SESSION['user_id']);
-        $invoice_date = $_POST['invoice_date'];
-        $payment_status = $_POST['payment_status'];
-        $invoice_terms = $_POST['invoice_terms'] ?? NULL;
-        $sub_total = floatval($_POST['sub_total']);
-        $tax_amount = floatval($_POST['tax_amount'] ?? 0);
-        $grand_total = floatval($_POST['grand_total']);
-        
-        $items = $_POST['items'] ?? [];
-        
-        if (empty($items)) {
-            throw new Exception("You must add at least one item to the invoice.");
+    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+
+    <style>
+        body { font-family: 'Inter', sans-serif; background: #f4f6f9; padding: 30px; }
+
+        /* Card Style */
+        .invoice-card {
+            background: #fff;
+            border-radius: 10px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.05);
+            padding: 30px;
+            border-top: 5px solid #007bff;
         }
 
-        // --- Generate Invoice Number ---
-        $invoice_number = generateInvoiceNumber($conn);
+        h3 { font-weight: 700; color: #333; margin-bottom: 25px; }
 
-        // --- Insert Invoice ---
-        $sql_invoice = "INSERT INTO invoices (invoice_number, client_id, user_id, invoice_date, sub_total, tax_amount, grand_total, payment_status, invoice_terms) 
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)";
-        $stmt_invoice = $conn->prepare($sql_invoice);
-        $stmt_invoice->bind_param("siisddsss", $invoice_number, $client_id, $user_id, $invoice_date, $sub_total, $tax_amount, $grand_total, $payment_status, $invoice_terms);
-        
-        if (!$stmt_invoice->execute()) {
-            throw new Exception("Failed to save invoice: " . $stmt_invoice->error);
-        }
-        $invoice_id = $conn->insert_id;
-        $stmt_invoice->close();
-
-        // --- Insert Items ---
-        $sql_items = "INSERT INTO invoice_items (invoice_id, product_id, item_name, serial_number, quantity, unit_price, buy_price) 
-                      VALUES (?, ?, ?, ?, ?, ?, ?)";
-        $stmt_items = $conn->prepare($sql_items);
-        
-        foreach ($items as $item) {
-            $stmt_items->bind_param(
-                "iisssdd",
-                $invoice_id,
-                $item['product_id'],
-                $item['item_name'],
-                $item['serial_number'],
-                $item['quantity'],
-                $item['unit_price'],
-                $item['buy_price']
-            );
-            if (!$stmt_items->execute()) {
-                throw new Exception("Failed to save item: " . $stmt_items->error);
-            }
-        }
-        $stmt_items->close();
-        
-        // --- Adjust Stock ---
-        if (!adjustStockOnCreate($conn, $items)) {
-            throw new Exception($_SESSION['error_message'] ?? "Stock adjustment failed.");
-        }
-        
-        // --- Update Quotation Status (If converted) ---
-        if (isset($_POST['from_quote_id']) && is_numeric($_POST['from_quote_id'])) {
-            $q_id_update = intval($_POST['from_quote_id']);
-            $conn->query("UPDATE quotations SET status = 'Accepted' WHERE quotation_id = $q_id_update");
+        /* --- PROFESSIONAL SEARCH DROPDOWN STYLES --- */
+        .ui-autocomplete {
+            max-height: 400px;
+            overflow-y: auto; 
+            overflow-x: hidden;
+            font-family: 'Inter', sans-serif !important;
+            border: none;
+            border-radius: 0 0 8px 8px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.15);
+            padding: 0;
+            z-index: 9999;
         }
 
-        $conn->commit();
-        $_SESSION['success_message'] = "Invoice (<b>{$invoice_number}</b>) created successfully!";
-        header('Location: invoices.php');
-        exit();
+        .ui-menu-item { border-bottom: 1px solid #f0f0f0; margin: 0; }
+        
+        /* Hover State */
+        .ui-state-active, .ui-widget-content .ui-state-active {
+            background: #eef6ff !important; border: none !important; color: inherit !important;
+        }
 
-    } catch (Exception $e) {
-        $conn->rollback();
-        $_SESSION['error_message'] = "Error: " . $e->getMessage();
-        header("Location: create_invoice.php" . ($is_converting ? "?from_quote=$q_id" : ""));
-        exit();
-    }
-}
+        /* Search Row Layout */
+        .search-row { display: flex; justify-content: space-between; align-items: center; padding: 10px 15px; cursor: pointer; }
+        .info-col { display: flex; flex-direction: column; gap: 3px; }
+        
+        .s-name { font-size: 13px; font-weight: 700; color: #2c3e50; }
+        .s-supplier { font-size: 11px; color: #7f8c8d; }
+        .s-qty { 
+            font-size: 10px; background-color: #17a2b8; color: #fff; 
+            padding: 2px 8px; border-radius: 4px; width: fit-content; font-weight: 600; 
+        }
 
-// -----------------------------------------------------------
-// 3. FETCH DATA FOR DROPDOWNS
-// -----------------------------------------------------------
-// Clients
-$clients = [];
-$res_clients = $conn->query("SELECT client_id, client_name, phone FROM clients ORDER BY client_name ASC");
-while ($row = $res_clients->fetch_assoc()) $clients[] = $row;
+        .price-col { text-align: right; border-left: 1px solid #eee; padding-left: 15px; margin-left: 10px; }
+        .s-price { font-size: 14px; font-weight: 700; color: #27ae60; white-space: nowrap; }
 
-// Products (For JS Dropdown)
-$products = [];
-$res_products = $conn->query("SELECT product_id, product_name, product_code, sell_price, buy_price, stock_quantity FROM products ORDER BY product_name ASC");
-while ($row = $res_products->fetch_assoc()) $products[] = $row;
+        /* Table Styling */
+        .table thead th {
+            background-color: #f8f9fa; border-top: none; font-size: 13px; font-weight: 600; color: #555;
+        }
+        .table tbody td { vertical-align: middle; font-size: 14px; }
+        
+        /* Remove Button */
+        .remove-btn { color: #e74c3c; cursor: pointer; font-size: 18px; transition: 0.2s; }
+        .remove-btn:hover { color: #c0392b; transform: scale(1.1); }
+    </style>
+</head>
+<body>
 
-// Settings
-$default_terms = '';
-$show_warranty = false;
-$res_settings = $conn->query("SELECT * FROM system_settings WHERE setting_key IN ('default_warranty_terms', 'show_warranty_on_invoice')");
-while ($row = $res_settings->fetch_assoc()) {
-    if ($row['setting_key'] == 'default_warranty_terms') $default_terms = $row['setting_value'];
-    if ($row['setting_key'] == 'show_warranty_on_invoice') $show_warranty = ($row['setting_value'] == '1');
-}
-
-$conn->close();
-$products_json = json_encode($products);
-?>
-
-<style>
-    #invoice-items-table tbody tr { vertical-align: middle; }
-    #invoice-items-table .form-control { font-size: 0.85rem; }
-    .profit-display { font-size: 0.8rem; font-weight: bold; }
-    .profit-positive { color: #198754; }
-    .profit-negative { color: #dc3545; }
-    .profit-zero { color: #6c757d; }
-</style>
-
-<?php if (isset($_SESSION['error_message'])): ?>
-    <div class="alert alert-danger alert-dismissible fade show" role="alert">
-        <?php echo $_SESSION['error_message']; unset($_SESSION['error_message']); ?>
-        <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
-    </div>
-<?php endif; ?>
-
-<form action="create_invoice.php" method="POST" id="invoice-form">
-    
-    <?php if ($is_converting): ?>
-        <input type="hidden" name="from_quote_id" value="<?php echo $q_id; ?>">
-    <?php endif; ?>
-
-    <div class="d-flex justify-content-between align-items-center mb-4">
-        <h1 class="text-primary m-0"><i class="fas fa-file-invoice-dollar"></i> Create New Invoice</h1>
-        <button type="submit" class="btn btn-primary btn-lg shadow">
-            <i class="fas fa-save"></i> Save Invoice
-        </button>
-    </div>
-    
-    <?php if ($is_converting): ?>
-        <div class="alert alert-info border-info shadow-sm">
-            <i class="fas fa-info-circle me-2"></i> 
-            <strong>Creating Invoice from Quotation #<?php echo str_pad($q_id, 4, '0', STR_PAD_LEFT); ?></strong>. 
-            Please verify quantities and stock before saving.
-        </div>
-    <?php endif; ?>
-
-    <hr>
-
-    <div class="card shadow mb-4">
-        <div class="card-header py-3 bg-light">
-            <h6 class="m-0 font-weight-bold text-primary">Invoice Details</h6>
-        </div>
-        <div class="card-body">
+<div class="container">
+    <div class="invoice-card">
+        <h3>Create New Invoice</h3>
+        
+        <form action="save_invoice.php" method="POST" id="invoiceForm">
+            
             <div class="row">
-                <div class="col-md-5">
-                    <label for="client_id" class="form-label fw-bold">Client <span class="text-danger">*</span></label>
-                    <select class="form-select" id="client_id" name="client_id" required>
-                        <option value="" disabled <?php echo !$is_converting ? 'selected' : ''; ?>>-- Select a Client --</option>
-                        <?php foreach ($clients as $client): 
-                            $selected = (isset($prefill_data['client_id']) && $prefill_data['client_id'] == $client['client_id']) ? 'selected' : '';
-                        ?>
-                            <option value="<?php echo $client['client_id']; ?>" <?php echo $selected; ?>>
-                                <?php echo htmlspecialchars($client['client_name']) . ' (' . htmlspecialchars($client['phone']) . ')'; ?>
-                            </option>
-                        <?php endforeach; ?>
-                    </select>
-                </div>
-                <div class="col-md-3">
-                    <label for="invoice_date" class="form-label fw-bold">Invoice Date <span class="text-danger">*</span></label>
-                    <input type="date" class="form-control" id="invoice_date" name="invoice_date" value="<?php echo date('Y-m-d'); ?>" required>
+                <div class="col-md-4">
+                    <div class="form-group">
+                        <label>Customer Name <span class="text-danger">*</span></label>
+                        <input type="text" name="customer_name" class="form-control" placeholder="පාරිභෝගිකයාගේ නම" required>
+                    </div>
                 </div>
                 <div class="col-md-4">
-                    <label for="payment_status" class="form-label fw-bold">Payment Status <span class="text-danger">*</span></label>
-                    <select class="form-select" id="payment_status" name="payment_status" required>
-                        <option value="Paid" class="text-success fw-bold">Paid (ගෙවා ඇත)</option>
-                        <option value="Pending" selected class="text-warning fw-bold">Pending (අර්ධව ගෙවා ඇත)</option>
-                        <option value="Unpaid" class="text-danger fw-bold">Unpaid (නොගෙවා ඇත)</option>
-                    </select>
-                </div>
-            </div>
-        </div>
-    </div>
-    
-    <div class="card shadow mb-4">
-        <div class="card-header py-3 d-flex justify-content-between align-items-center bg-light">
-            <h6 class="m-0 font-weight-bold text-primary">Invoice Items</h6>
-            <button type="button" class="btn btn-success btn-sm" onclick="addNewItemRow()">
-                <i class="fas fa-plus"></i> Add New Item
-            </button>
-        </div>
-        <div class="card-body">
-            <div class="table-responsive">
-                <table class="table" id="invoice-items-table">
-                    <thead class="table-light">
-                        <tr>
-                            <th style="width: 25%;">Item/Service <span class="text-danger">*</span></th>
-                            <th style="width: 15%;">Serial Number</th>
-                            <th style="width: 10%;">Stock</th>
-                            <th style="width: 10%;">Quantity <span class="text-danger">*</span></th>
-                            <th style="width: 15%;">Unit Price (රු.) <span class="text-danger">*</span></th>
-                            <th style="width: 15%;">Total (රු.)</th>
-                            <th style="width: 10%;">Action</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        <?php if ($is_converting && !empty($prefill_items)): ?>
-                            <?php foreach ($prefill_items as $index => $item): 
-                                $row_id = $index + 1;
-                                $qty = floatval($item['quantity']);
-                                $price = floatval($item['unit_price']);
-                                $buy_price = floatval($item['buy_price']);
-                                $total = $qty * $price;
-                                $profit = ($price - $buy_price) * $qty;
-                                
-                                // Stock Display Logic
-                                $is_service = ($buy_price <= 0 && $item['stock_quantity'] <= 0);
-                                $stock_display = $is_service ? 'N/A' : $item['stock_quantity'];
-                                $stock_class = (!$is_service && $item['stock_quantity'] <= 0) ? 'text-danger fw-bold' : '';
-                            ?>
-                            <tr id="item-row-<?php echo $row_id; ?>">
-                                <td>
-                                    <select class="form-select" name="items[<?php echo $row_id; ?>][product_id]" id="product_id_<?php echo $row_id; ?>" onchange="productSelected(this)" required>
-                                        <option value="">-- Select Item --</option>
-                                        <?php foreach ($products as $p): 
-                                            $sel = ($p['product_id'] == $item['product_id']) ? 'selected' : '';
-                                            $stkInfo = ($p['buy_price'] > 0 || $p['stock_quantity'] > 0) ? "(Stock: {$p['stock_quantity']})" : "(Service)";
-                                        ?>
-                                            <option value="<?php echo $p['product_id']; ?>" 
-                                                data-name="<?php echo htmlspecialchars($p['product_name']); ?>" 
-                                                data-sell="<?php echo $p['sell_price']; ?>" 
-                                                data-buy="<?php echo $p['buy_price']; ?>" 
-                                                data-stock="<?php echo $p['stock_quantity']; ?>" <?php echo $sel; ?>>
-                                                <?php echo htmlspecialchars($p['product_name']) . " " . $stkInfo; ?>
-                                            </option>
-                                        <?php endforeach; ?>
-                                    </select>
-                                    <input type="hidden" name="items[<?php echo $row_id; ?>][item_name]" id="item_name_<?php echo $row_id; ?>" value="<?php echo htmlspecialchars($item['item_name']); ?>">
-                                    <input type="hidden" name="items[<?php echo $row_id; ?>][buy_price]" id="buy_price_<?php echo $row_id; ?>" value="<?php echo $buy_price; ?>">
-                                </td>
-                                <td><input type="text" class="form-control" name="items[<?php echo $row_id; ?>][serial_number]" placeholder="Serial / Note"></td>
-                                <td><input type="text" class="form-control-plaintext text-center <?php echo $stock_class; ?>" id="stock_<?php echo $row_id; ?>" value="<?php echo $stock_display; ?>" readonly></td>
-                                <td><input type="number" class="form-control text-end" name="items[<?php echo $row_id; ?>][quantity]" id="quantity_<?php echo $row_id; ?>" value="<?php echo $qty; ?>" step="any" min="0.01" oninput="calculateTotals()" required></td>
-                                <td><input type="number" class="form-control text-end" name="items[<?php echo $row_id; ?>][unit_price]" id="unit_price_<?php echo $row_id; ?>" value="<?php echo $price; ?>" step="0.01" min="0" oninput="calculateTotals()" required></td>
-                                <td>
-                                    <input type="text" class="form-control-plaintext text-end fw-bold" id="total_display_<?php echo $row_id; ?>" value="<?php echo number_format($total, 2, '.', ''); ?>" readonly>
-                                    <div class="profit-display <?php echo ($profit > 0 ? 'profit-positive' : ($profit < 0 ? 'profit-negative' : 'profit-zero')); ?>" id="profit_<?php echo $row_id; ?>">Profit: <?php echo number_format($profit, 2); ?></div>
-                                </td>
-                                <td><button type="button" class="btn btn-danger btn-sm" onclick="deleteItemRow(this)"><i class="fas fa-trash-alt"></i></button></td>
-                            </tr>
-                            <?php endforeach; ?>
-                        <?php endif; ?>
-                    </tbody>
-                </table>
-            </div>
-        </div>
-    </div>
-    
-    <div class="row">
-        <div class="col-lg-7">
-            <?php if ($show_warranty): ?>
-            <div class="card shadow mb-4">
-                <div class="card-header py-3 bg-light">
-                    <h6 class="m-0 font-weight-bold text-primary">Terms & Conditions</h6>
-                </div>
-                <div class="card-body">
-                    <textarea class="form-control" name="invoice_terms" rows="8"><?php echo htmlspecialchars($default_terms); ?></textarea>
-                </div>
-            </div>
-            <?php endif; ?>
-        </div>
-        
-        <div class="col-lg-5">
-            <div class="card shadow mb-4">
-                <div class="card-header py-3 bg-light">
-                    <h6 class="m-0 font-weight-bold text-primary">Invoice Totals</h6>
-                </div>
-                <div class="card-body">
-                    <div class="row mb-2">
-                        <label class="col-sm-5 col-form-label fw-bold">Sub Total (රු.):</label>
-                        <div class="col-sm-7">
-                            <input type="number" readonly class="form-control-plaintext text-end fw-bold" id="sub_total_display" value="<?php echo isset($prefill_data['sub_total']) ? $prefill_data['sub_total'] : '0.00'; ?>">
-                            <input type="hidden" name="sub_total" id="sub_total_hidden" value="<?php echo isset($prefill_data['sub_total']) ? $prefill_data['sub_total'] : '0.00'; ?>">
-                        </div>
+                    <div class="form-group">
+                        <label>Date</label>
+                        <input type="date" name="invoice_date" class="form-control" value="<?php echo date('Y-m-d'); ?>">
                     </div>
-                    
-                    <div class="row mb-2 align-items-center">
-                        <label for="tax_amount" class="col-sm-5 col-form-label fw-bold">Tax (රු.):</label>
-                        <div class="col-sm-7">
-                            <input type="number" class="form-control text-end" id="tax_amount" name="tax_amount" value="<?php echo isset($prefill_data['tax_amount']) ? $prefill_data['tax_amount'] : '0.00'; ?>" step="0.01" oninput="calculateTotals()">
-                        </div>
+                </div>
+                <div class="col-md-4">
+                    <div class="form-group">
+                        <label>Invoice No</label>
+                        <input type="text" name="invoice_no" class="form-control" value="INV-<?php echo time(); ?>" readonly style="background:#eee;">
                     </div>
-                    
-                    <hr>
-                    
-                    <div class="row mb-2">
-                        <label class="col-sm-5 col-form-label h4 text-primary fw-bolder">Grand Total (රු.):</label>
-                        <div class="col-sm-7">
-                            <input type="number" readonly class="form-control-plaintext text-end h4 text-primary fw-bolder" id="grand_total_display" value="<?php echo isset($prefill_data['grand_total']) ? $prefill_data['grand_total'] : '0.00'; ?>">
-                            <input type="hidden" name="grand_total" id="grand_total_hidden" value="<?php echo isset($prefill_data['grand_total']) ? $prefill_data['grand_total'] : '0.00'; ?>">
-                        </div>
-                    </div>
-                    
                 </div>
             </div>
-        </div>
-    </div>
-    
-</form>
 
-<?php require_once 'footer.php'; ?>
+            <hr>
+
+            <div class="form-group" style="position: relative;">
+                <label style="font-weight: 600; color: #007bff;">Search Product</label>
+                <input type="text" id="product_search" class="form-control form-control-lg" placeholder="භාණ්ඩයේ නම ටයිප් කරන්න..." autocomplete="off">
+                <small class="text-muted">Tip: Type product name to search & add instantly.</small>
+            </div>
+
+            <table class="table table-hover table-bordered mt-3">
+                <thead>
+                    <tr>
+                        <th width="40%">Product Name</th>
+                        <th width="15%" class="text-right">Price (Rs)</th>
+                        <th width="15%" class="text-center">Qty</th>
+                        <th width="20%" class="text-right">Total (Rs)</th>
+                        <th width="10%" class="text-center">Action</th>
+                    </tr>
+                </thead>
+                <tbody id="invoiceItems">
+                    </tbody>
+            </table>
+
+            <div class="row justify-content-end mt-4">
+                <div class="col-md-5">
+                    <table class="table table-bordered">
+                        <tr style="background: #f1f1f1;">
+                            <td style="font-weight: 700; font-size: 16px;">Grand Total:</td>
+                            <td class="text-right" style="font-size: 18px; font-weight: 800; color: #2c3e50;">
+                                Rs. <span id="grand_total">0.00</span>
+                                <input type="hidden" name="final_amount" id="final_amount_input">
+                            </td>
+                        </tr>
+                    </table>
+                    
+                    <div class="text-right">
+                        <button type="submit" class="btn btn-success btn-lg px-5 font-weight-bold">
+                            Save Invoice <i class="fa fa-check"></i>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </form>
+        </div>
+</div>
+
+<script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+<script src="https://code.jquery.com/ui/1.13.2/jquery-ui.min.js"></script>
 
 <script>
-const allProductsData = <?php echo $products_json; ?>;
-// Initialize row counter based on pre-filled items
-let itemRowCounter = <?php echo isset($prefill_items) ? count($prefill_items) : 0; ?>;
+$(document).ready(function() {
 
-document.addEventListener('DOMContentLoaded', function() {
-    // If no items were pre-filled, add one empty row
-    if (itemRowCounter === 0) {
-        addNewItemRow();
-    }
-});
-
-function addNewItemRow() {
-    itemRowCounter++;
-    const tableBody = document.getElementById('invoice-items-table').getElementsByTagName('tbody')[0];
-    const newRow = tableBody.insertRow();
-    newRow.id = `item-row-${itemRowCounter}`;
-    
-    // Product Dropdown
-    const cellProduct = newRow.insertCell(0);
-    let productOptions = `<option value="" data-name="" data-sell="0" data-buy="0" data-stock="0" disabled selected>-- Select Item --</option>`;
-    allProductsData.forEach(p => {
-        let stockInfo = (p.buy_price > 0 || p.stock_quantity > 0) ? `(Stock: ${p.stock_quantity})` : `(Service)`;
-        productOptions += `<option value="${p.product_id}" data-name="${p.product_name}" data-sell="${p.sell_price}" data-buy="${p.buy_price}" data-stock="${p.stock_quantity}">
-                                ${p.product_name} ${stockInfo}
-                           </option>`;
-    });
-    cellProduct.innerHTML = `
-        <select class="form-select" name="items[${itemRowCounter}][product_id]" id="product_id_${itemRowCounter}" onchange="productSelected(this)" required>
-            ${productOptions}
-        </select>
-        <input type="hidden" name="items[${itemRowCounter}][item_name]" id="item_name_${itemRowCounter}" value="">
-        <input type="hidden" name="items[${itemRowCounter}][buy_price]" id="buy_price_${itemRowCounter}" value="0.00">
-    `;
-
-    // Serial
-    const cellSerial = newRow.insertCell(1);
-    cellSerial.innerHTML = `<input type="text" class="form-control" name="items[${itemRowCounter}][serial_number]" placeholder="Serial / Note">`;
-
-    // Stock
-    const cellStock = newRow.insertCell(2);
-    cellStock.innerHTML = `<input type="text" class="form-control-plaintext text-center fw-bold" id="stock_${itemRowCounter}" value="-" readonly>`;
-
-    // Quantity
-    const cellQty = newRow.insertCell(3);
-    cellQty.innerHTML = `<input type="number" class="form-control text-end" name="items[${itemRowCounter}][quantity]" id="quantity_${itemRowCounter}" value="1" step="any" min="0.01" oninput="calculateTotals()" required>`;
-    
-    // Unit Price
-    const cellPrice = newRow.insertCell(4);
-    cellPrice.innerHTML = `<input type="number" class="form-control text-end" name="items[${itemRowCounter}][unit_price]" id="unit_price_${itemRowCounter}" value="0.00" step="0.01" min="0" oninput="calculateTotals()" required>`;
-
-    // Total & Profit
-    const cellTotal = newRow.insertCell(5);
-    cellTotal.innerHTML = `
-        <input type="text" class="form-control-plaintext text-end fw-bold" id="total_display_${itemRowCounter}" value="0.00" readonly>
-        <div class="profit-display profit-zero" id="profit_${itemRowCounter}">Profit: 0.00</div>
-    `;
-
-    // Delete Button
-    const cellAction = newRow.insertCell(6);
-    cellAction.innerHTML = `<button type="button" class="btn btn-danger btn-sm" onclick="deleteItemRow(this)"><i class="fas fa-trash-alt"></i></button>`;
-}
-
-function productSelected(selectElement) {
-    const selectedOption = selectElement.options[selectElement.selectedIndex];
-    const rowId = selectElement.id.split('_')[2];
-    
-    const sellPrice = selectedOption.getAttribute('data-sell');
-    const buyPrice = selectedOption.getAttribute('data-buy');
-    const stock = selectedOption.getAttribute('data-stock');
-    const itemName = selectedOption.getAttribute('data-name');
-
-    document.getElementById(`unit_price_${rowId}`).value = parseFloat(sellPrice).toFixed(2);
-    document.getElementById(`buy_price_${rowId}`).value = parseFloat(buyPrice).toFixed(2);
-    document.getElementById(`item_name_${rowId}`).value = itemName;
-    
-    const stockEl = document.getElementById(`stock_${rowId}`);
-    
-    // Check if it's a service (Cost=0 & Stock=0)
-    if (parseFloat(buyPrice) <= 0 && parseFloat(stock) <= 0) {
-        stockEl.value = 'N/A';
-        stockEl.classList.remove('text-danger');
-    } else {
-        stockEl.value = stock;
-        if (parseFloat(stock) <= 0) {
-            stockEl.classList.add('text-danger');
-        } else {
-            stockEl.classList.remove('text-danger');
+    // --- 1. SWEETALERT TOAST SETUP (Sinhala) ---
+    const Toast = Swal.mixin({
+        toast: true,
+        position: 'top-end',
+        showConfirmButton: false,
+        timer: 3000,
+        timerProgressBar: true,
+        didOpen: (toast) => {
+            toast.addEventListener('mouseenter', Swal.stopTimer)
+            toast.addEventListener('mouseleave', Swal.resumeTimer)
         }
+    });
+
+    // --- 2. PROFESSIONAL AUTOCOMPLETE ---
+    $("#product_search").autocomplete({
+        source: function(request, response) {
+            $.ajax({
+                url: "fetch_products.php", // මෙය Backend file path එකයි
+                type: "POST",
+                dataType: "json",
+                data: { term: request.term },
+                success: function(data) {
+                    if (data.length === 0) {
+                        response([{ label: 'No product found', value: '', no_result: true }]);
+                    } else {
+                        response(data);
+                    }
+                }
+            });
+        },
+        minLength: 1,
+        autoFocus: true, // ඉබේම Select වීම
+
+        select: function(event, ui) {
+            if (ui.item.no_result) { 
+                $(this).val(''); 
+                return false; 
+            }
+
+            // භාණ්ඩය Table එකට එකතු කිරීම
+            addProductToTable(ui.item);
+            
+            $(this).val(''); // Input එක clear කිරීම
+            return false;
+        }
+    })
+    // Custom Render (ඔබේ Design එක)
+    .autocomplete("instance")._renderItem = function(ul, item) {
+        if(item.no_result){
+            return $("<li>").append("<div style='padding:10px; color:red; font-size:12px;'>No product found!</div>").appendTo(ul);
+        }
+        return $("<li>")
+            .append(`
+                <div class="search-row">
+                    <div class="info-col">
+                        <span class="s-name">${item.value}</span>
+                        <span class="s-supplier">Supplier: ${item.supplier}</span>
+                        <span class="s-qty">Stock: ${item.qty}</span>
+                    </div>
+                    <div class="price-col">
+                        Rs. <span class="s-price">${item.price}</span>
+                    </div>
+                </div>
+            `)
+            .appendTo(ul);
+    };
+
+    // --- 3. TABLE LOGIC ---
+    function addProductToTable(item) {
+        // Price එකෙන් "," ඉවත් කර අංකයක් කරගැනීම
+        let priceValue = parseFloat(item.price.replace(/,/g, ''));
+        
+        let row = `
+            <tr>
+                <td>
+                    <strong>${item.value}</strong>
+                    <input type="hidden" name="product_id[]" value="${item.id}">
+                    <input type="hidden" name="product_name[]" value="${item.value}">
+                </td>
+                <td class="text-right">
+                    ${item.price}
+                    <input type="hidden" class="price-input" name="price[]" value="${priceValue}">
+                </td>
+                <td>
+                    <input type="number" name="qty[]" class="form-control form-control-sm qty-input text-center" value="1" min="1">
+                </td>
+                <td class="text-right">
+                    <span class="row-total">${priceValue.toFixed(2)}</span>
+                </td>
+                <td class="text-center">
+                    <span class="remove-btn" title="Remove">&times;</span>
+                </td>
+            </tr>
+        `;
+        
+        $("#invoiceItems").append(row);
+        calculateGrandTotal();
+        
+        // Product එකක් දැමූ විට Alert එකක් (Optional)
+        // Toast.fire({ icon: 'success', title: 'භාණ්ඩය එකතු කරන ලදී' });
     }
 
-    calculateTotals();
-}
-
-function deleteItemRow(button) {
-    const tableBody = document.getElementById('invoice-items-table').getElementsByTagName('tbody')[0];
-    if (tableBody.rows.length <= 1) {
-        Swal.fire('Warning', 'You cannot remove the last item row.', 'warning');
-        return;
-    }
-    const row = button.parentNode.parentNode;
-    row.parentNode.removeChild(row);
-    calculateTotals();
-}
-
-function calculateTotals() {
-    let subTotal = 0;
-    const tableBody = document.getElementById('invoice-items-table').getElementsByTagName('tbody')[0];
-    
-    for (let i = 0; i < tableBody.rows.length; i++) {
-        const row = tableBody.rows[i];
-        const rowId = row.id.split('-')[2];
+    // --- 4. DYNAMIC CALCULATIONS ---
+    $(document).on('input', '.qty-input', function() {
+        let row = $(this).closest('tr');
+        let price = parseFloat(row.find('.price-input').val());
+        let qty = parseFloat($(this).val());
         
-        const quantity = parseFloat(document.getElementById(`quantity_${rowId}`).value) || 0;
-        const unitPrice = parseFloat(document.getElementById(`unit_price_${rowId}`).value) || 0;
-        const buyPrice = parseFloat(document.getElementById(`buy_price_${rowId}`).value) || 0;
+        if(isNaN(qty) || qty < 1) qty = 0;
 
-        const lineTotal = quantity * unitPrice;
-        const lineProfit = (unitPrice - buyPrice) * quantity;
+        let total = price * qty;
+        row.find('.row-total').text(total.toFixed(2));
         
-        document.getElementById(`total_display_${rowId}`).value = lineTotal.toFixed(2);
-        
-        const profitEl = document.getElementById(`profit_${rowId}`);
-        profitEl.textContent = `Profit: ${lineProfit.toFixed(2)}`;
-        profitEl.className = 'profit-display'; 
-        if (lineProfit > 0) profitEl.classList.add('profit-positive');
-        else if (lineProfit < 0) profitEl.classList.add('profit-negative');
-        else profitEl.classList.add('profit-zero');
+        calculateGrandTotal();
+    });
 
-        subTotal += lineTotal;
+    $(document).on('click', '.remove-btn', function() {
+        $(this).closest('tr').remove();
+        calculateGrandTotal();
+    });
+
+    function calculateGrandTotal() {
+        let grandTotal = 0;
+        $('.row-total').each(function() {
+            grandTotal += parseFloat($(this).text());
+        });
+        
+        $('#grand_total').text(grandTotal.toFixed(2));
+        $('#final_amount_input').val(grandTotal.toFixed(2));
     }
 
-    const tax = parseFloat(document.getElementById('tax_amount').value) || 0;
-    const grandTotal = subTotal + tax;
+    // --- 5. FORM SUBMISSION & SINHALA ALERTS ---
+    $("#invoiceForm").on("submit", function(e) {
+        e.preventDefault();
 
-    document.getElementById('sub_total_display').value = subTotal.toFixed(2);
-    document.getElementById('sub_total_hidden').value = subTotal.toFixed(2);
-    document.getElementById('grand_total_display').value = grandTotal.toFixed(2);
-    document.getElementById('grand_total_hidden').value = grandTotal.toFixed(2);
-}
+        // A. නම Validation
+        var customerName = $("input[name='customer_name']").val();
+        if (customerName.trim() == "") {
+            Swal.fire({
+                icon: 'warning',
+                title: 'අවධානයට!',
+                text: 'කරුණාකර පාරිභෝගිකයාගේ නම ඇතුලත් කරන්න.',
+                confirmButtonColor: '#f39c12',
+                confirmButtonText: 'හරි'
+            });
+            return false;
+        }
+
+        // B. භාණ්ඩ Validation
+        if ($("#invoiceItems tr").length == 0) {
+            Swal.fire({
+                icon: 'error',
+                title: 'භාණ්ඩ ඇතුලත් කර නැත!',
+                text: 'කරුණාකර ඉන්වොයිසියට භාණ්ඩ (Products) එකතු කරන්න.',
+                confirmButtonColor: '#d33',
+                confirmButtonText: 'හරි මම දාන්නම්'
+            });
+            return false;
+        }
+
+        // C. සාර්ථක නම් (AJAX Submit Simulation)
+        $.ajax({
+            url: $(this).attr('action'),
+            type: "POST",
+            data: $(this).serialize(),
+            success: function(response) {
+                // Success Message (Sinhala)
+                Toast.fire({
+                    icon: 'success',
+                    title: 'ඉන්වොයිසිය සාර්ථකව සකසන ලදී!'
+                });
+
+                // තත්පර 2කට පසු පිටුව reload කිරීම
+                setTimeout(function() {
+                    location.reload(); 
+                }, 2000);
+            },
+            error: function() {
+                Swal.fire({
+                    icon: 'error',
+                    title: 'අසාර්ථකයි!',
+                    text: 'තාක්ෂණික දෝෂයක් මතු විය.',
+                });
+            }
+        });
+    });
+
+});
 </script>
+
+</body>
+</html>
